@@ -1,0 +1,21 @@
+import twilio from "twilio";
+
+const client = twilio(
+  process.env.TWILIO_SID!,
+  process.env.TWILIO_AUTH_TOKEN!
+);
+
+export const sendOtpSms = async (to: string, otp: string) => {
+  await client.messages.create({
+    body: `Your OTP is ${otp}`,
+    from: process.env.TWILIO_PHONE!,
+    to,
+  });
+};
+export const sentMessage = async (to: string, content: string) => {
+  await client.messages.create({
+    body: content,
+    from: process.env.TWILIO_PHONE!,
+    to,
+  });
+}
