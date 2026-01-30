@@ -4,6 +4,7 @@ export const typeDefs = `
     emailsAndContactsDisplay(input: EmailAndContactInput!): [EmailAndContact]
     getGmailConsentUrl(input:token!):url
     getImportantNotifications(input:notificationInput):ImportantNotificationsResponse
+    getUniquegmails(input:UniqueGmailInput!):[SenderStats]
   }
   input EmailAndContactInput {
     ownerUserId:String!
@@ -14,6 +15,14 @@ export const typeDefs = `
      email:String
      messageCount:Int
   }
+  input UniqueGmailInput{
+  isEmail:Boolean!
+  }
+  type SenderStats{
+    senderEmail:String
+    senderName:String
+    emailCount:Int
+  }
   type Mutation {
   signUp(input: SignUpInput!): SignUpResponse!
   verifyOtp(input: VerifyOtpInput!): VerifyOtpResponse!
@@ -21,13 +30,13 @@ export const typeDefs = `
   verifyEmailOtp(input: VerifyEmailOtpInput!): VerifyOtpResponse!
   signIn(input: SignInInput!): SignInResponse!
   creatingEmailContact(input:ContactInput!):ContactInResponse!
-  updatingEmailContact(input:UpdateContact!):UpdateContactResponse!
+  updatingEmailContact(input:UpdateContact!):String!
   creatingContact(input: CreateContactInput!): CreateContactResponse!
   updateMsgConsent(input: UpdateMsgConsentInput!): UpdateMsgConsentResponse!
   sendMessage(input: SendMessageInput!): SendMessageResponse!
   topPriorityNotifications(limit: Int = 3): [PriorityNotification!]!
   }
-    type PriorityNotification {
+  type PriorityNotification {
   messageId: ID!
   senderName: String
   content: String!
@@ -35,7 +44,7 @@ export const typeDefs = `
   finalScore: Int!
   sentAt: String!
   channel:String!
-}
+  }
   input SignUpInput {
   email: String!
   phone: String!
@@ -63,7 +72,7 @@ export const typeDefs = `
   senderEmail:String!
   }
   type ContactInResponse{
-    message:String
+    message:Boolean!
   }
   input token{
     token:String!

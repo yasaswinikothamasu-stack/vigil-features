@@ -131,7 +131,10 @@ mercury.connect(DB_URL);
         `Account mismatch. Logged in as ${user.email} but selected ${googleEmail}`
       );
     }
-
+    const updateEmailConsent =await mercury.db.User.mongoModel.updateOne(
+          { _id: userId },
+          { $set: { isEmailConsent: true } });
+    console.log(updateEmailConsent);
     // 4️⃣ Store / update tokens
     const existingToken =
       await mercury.db.UserOAuthTokens.mongoModel.findOne({

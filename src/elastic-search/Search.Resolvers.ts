@@ -1,6 +1,6 @@
 import mercury from "@mercury-js/core";
 import bcrypt from "bcryptjs";
-import { redisConnection } from "../utils/redis";
+import { redisConnection as redis} from "../utils/redis";
 import { sendOtpEmail } from "../utils/sendEmail";
 import { sendOtpSms,sentMessage } from "../utils/sendSms";
 import { emailQueue, messageWorker } from "./queue";
@@ -28,6 +28,7 @@ export const resolvers = {
     if (!ctx.user?.id) {
       throw new GraphQLError("Unauthorized");
     }
+    console.log(ctx.user.is,"iddd");
     const oauth2Client = new google.auth.OAuth2(
       process.env.CLIENT_ID,
       process.env.CLIENT_SECRET,
@@ -44,9 +45,7 @@ export const resolvers = {
       ],
       state: ctx.user.id, // VERY IMPORTANT
     });
-    console.log(url,"url...");
-    console.log(gmailOAuthClient,"gmailOAuthClient...");
-    return {url,gmailOAuthClient};
+    return {url};
     },
     getImportantNotifications: async (
     _: any,
@@ -97,8 +96,28 @@ export const resolvers = {
         notifications: [],
       };
   };
-    }
-  },
+    },
+    getUniquegmails: async (
+      _: any,
+      { input }: { input: { isEmail: boolean } },
+      ctx: any
+    ) => {
+      try {
+      const ownerUserId = new mongoose.Types.ObjectId(ctx.user.id);
+      const senderStats = await mercury.db.SenderStats.mongoModel.find({
+        ownerUserId
+      });
+     return senderStats.map((stat:any)=>({
+        senderEmail:stat.senderEmail,
+        senderName:stat.senderName,
+        emailCount:stat.emailCount
+      }));
+      } catch (error) {
+        console.error("getUniquegmails error:", error);
+        return null;
+      }
+    },
+},
   Mutation: {
     signUp: async (
       _: any,
@@ -598,8 +617,12 @@ return topMessages.map(top => ({
 }));
 
     },
-    creatingEmailContact: async (_: any,  { input }: { input: { senderEmail: string } }, ctx:any) => {
-    try {
+    creatingEmailContact: async (
+      _: any,
+      { input }: { input: { senderEmail: string } },
+      ctx: any
+    ) => {
+      try {
     const ownerUserId = new mongoose.Types.ObjectId(ctx.user.id);
 
     // 1️⃣ Fetch sender stats
@@ -607,39 +630,34 @@ return topMessages.map(top => ({
       ownerUserId,
       senderEmail: input.senderEmail,
     });
-    console.log(senderStats,"senderstats");
 
     if (!senderStats) {
-      return { contactId: null };
+      return { message: false };
     }
 
-    // 2️⃣ Already linked → return
+    // 2️⃣ Already linked
     if (senderStats.contactId) {
-      return { contactId: senderStats.contactId };
+      return { message: true };
     }
 
-    // 3️⃣ Not enough signal yet
-    // if (senderStats.emailCount < 3) {
-    //   return { contactId: null };
-    // }
-    // 4️⃣ Create contact (idempotent)
-    const contactId = await ensureContactForSender(
-      {
-        ownerUserId: senderStats.ownerUserId.toString(),
-        senderEmail: senderStats.senderEmail,
-        relationship:"STRANGER"
-      },
-    );
+    // 3️⃣ Create contact
+    const contactId = await ensureContactForSender({
+      ownerUserId: senderStats.ownerUserId.toString(),
+      senderEmail: senderStats.senderEmail,
+      relationship: "STRANGER",
+    });
 
-    // 5️⃣ Link back atomically
+    // 4️⃣ Link contact
     await mercury.db.SenderStats.mongoModel.updateOne(
       { _id: senderStats._id, contactId: null },
       { $set: { contactId } }
     );
-    return { contactId };
+
+    return { message: true };
+
   } catch (error) {
     console.error("creatingEmailContact error:", error);
-    return { contactId: null };
+    return { message: false };
   }
     },
     updatingEmailContact: async (
@@ -681,14 +699,8 @@ return topMessages.map(top => ({
           return true
       } catch (error) {
         console.error("creatingEmailContact error:", error);
-        return { contactId: null };
+        return false;
       }
     },
-
-
-
-
-
-
   }
 }
