@@ -14,6 +14,17 @@ export const setContext = async (req: any) => {
   if (!requestedApi || requestedApi === "introspectionquery") {
     return { ...req, user: { profile: "Anonymous" } };
   }
+  if (
+  !requestedApi ||
+  requestedApi === "__schema" ||
+  requestedApi === "__type"
+  ) {
+    return {
+      ...req,
+      user: { profile: "Anonymous" },
+      base,
+    };
+  }
   try {
     if (baseApis.includes(requestedApi)) {
       return { ...req, user: { profile: "Anonymous" }, base };

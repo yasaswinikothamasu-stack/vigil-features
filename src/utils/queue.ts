@@ -324,6 +324,10 @@ export const messageWorker = new Worker(
       access_token: tokenDoc.accessToken,
       refresh_token: tokenDoc.refreshToken,
     });
+    const tokenInfo = await auth.getTokenInfo(tokenDoc.accessToken);
+
+    console.log("TOKEN SCOPES:");
+    console.log(tokenInfo.scopes,"tokens");
 
     const gmail = google.gmail({ version: "v1", auth });
 
@@ -351,7 +355,7 @@ export const messageWorker = new Worker(
       maxMessages: 5000,
     });
     const profile = await gmail.users.getProfile({ userId: "me" });
-
+    console.log("getProfile success",profile);
     await mercury.db.EmailSyncState.mongoModel.updateOne(
       { ownerUserId },
       {
@@ -380,6 +384,7 @@ export const messageWorker = new Worker(
         const profile = await gmail.users.getProfile({
           userId: "me",
         });
+        console.log(profile,"profile");
 
         await mercury.db.EmailSyncState.mongoModel.updateOne(
           { ownerUserId },

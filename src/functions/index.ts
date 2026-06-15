@@ -1,3 +1,3 @@
 export { ensureContactForSender,getRelationshipScore,getContentUrgencyScore} from "./emailcontact";
-export { calculatePriorityScore } from "./calcPriorityScore";
-export {calculateFinalScore} from "./finalScore"
+export { calculatePriorityScore,emailcalculatePriorityScore } from "./calcPriorityScore";
+export {calculateFinalScore,calculateFinalEmailScore} from "./finalScore"

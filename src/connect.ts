@@ -40,14 +40,29 @@ export class Connect extends Base {
     this.user = null;
   }
 
-  validateSession(session: string) {
-    try {
-      let user = this.Auth.isValidSession(session);
-      console.log(user,"user in connect/..");
-      this.user = user;
-    } catch (error: any) {
+  // validateSession(session: string) {
+  //   try {
+  //     let user = this.Auth.isValidSession(session);
+  //     console.log(user,"user in connect/..");
+  //     this.user = user;
+  //   } catch (error: any) {
+  //     this.user = null;
+  //     throw new Error(error.message);
+  //   }
+  // }
+  validateSession(session?: string) {
+  try {
+    if (!session) {
       this.user = null;
-      throw new Error(error.message);
+      return;
     }
+
+    const user = this.Auth.isValidSession(session);
+    this.user = user;
+  } catch (error) {
+    this.user = null;
   }
+}
+
+
 }

@@ -5,3 +5,5 @@ export {getHeader, extractSubject, extractSenderName, extractSenderEmail} from "
 export { emailQueue, messageWorker } from "./queue";
 export {calculateFinalScore} from "../functions/finalScore";
 export {runTopPriorityNotification} from "./topPriorityNotification";
+export {getEmbedding} from "./embeddings";
+export  {run} from "./create-embeddings";

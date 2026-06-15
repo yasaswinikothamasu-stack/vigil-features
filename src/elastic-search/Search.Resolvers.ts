@@ -13,6 +13,9 @@ import { decrypt } from "dotenv";
 import mongoose from "mongoose";
 import { google } from "googleapis";
 import { GraphQLError } from "graphql";
+import { MongoClient } from 'mongodb';
+import {getEmbedding} from '../utils/embeddings.js'
+
 import dotenv from "dotenv";
 dotenv.config();
 import { calculateFinalScore } from "../functions/finalScore";
@@ -29,6 +32,9 @@ export const resolvers = {
       throw new GraphQLError("Unauthorized");
     }
     console.log(ctx.user.is,"iddd");
+    console.log("CLIENT_ID =", process.env.CLIENT_ID);
+    console.log("CLIENT_SECRET =", process.env.CLIENT_SECRET);
+    console.log("REDIRECT_URI =", process.env.REDIRECT_URI);
     const oauth2Client = new google.auth.OAuth2(
       process.env.CLIENT_ID,
       process.env.CLIENT_SECRET,
@@ -42,6 +48,10 @@ export const resolvers = {
       scope: [
         "https://www.googleapis.com/auth/gmail.readonly",
         "https://www.googleapis.com/auth/userinfo.email",
+        "openid",
+        "email",
+        "profile",
+        "https://www.googleapis.com/auth/gmail.modify",
       ],
       state: ctx.user.id, // VERY IMPORTANT
     });
@@ -117,6 +127,145 @@ export const resolvers = {
         return null;
       }
     },
+    //apis to expose to the chatbot
+    getTopItems: async (
+      _: any, 
+      { limit = 5 }, 
+      ctx: any
+    ) => {
+      if (!ctx.user?.id) throw new Error("Unauthorized");
+
+      const authCtx = { id: "system", profile: "SUPER_ADMIN" };
+
+      const user = await mercury.db.User.get(
+        { _id: ctx.user.id }, 
+        authCtx
+      );
+
+      if (!user || !user.isMsgConsent) return [];
+
+      const messages = await mercury.db.Message.list(
+        {
+          ownerUserId: ctx.user.id,
+          isRead: false,
+          isDeleted: false,
+          isArchived: false,
+        },
+        authCtx,
+        { limit: 20 }
+      );
+
+      const scored = await Promise.all(
+        messages.map(async (m: any) => ({
+          message: m,
+          finalScore: await calculateFinalScore({
+            basePriorityScore: m.priorityScore,
+            ownerUserId: ctx.user.id,
+            senderUserId: m.senderUserId,
+            authCtx,
+          }),
+        }))
+      );
+
+      scored.sort((a, b) => b.finalScore - a.finalScore);
+
+      return scored.slice(0, limit).map(({ message, finalScore }) => ({
+        messageId: message.id,
+        senderName: message.senderName,
+        content: message.subject || message.content,
+        finalScore,
+        channel: message.channel,
+      }));
+    },
+
+    getAssistantSummary: async (
+      _: any, 
+      { limit = 3 }, 
+      ctx:any
+     ) => {
+      const items = await resolvers.Query.getTopItems(_, { limit }, ctx);
+
+      if (!items.length) {
+        return { message: "No important updates right now." };
+      }
+
+      const message = items
+        .map((item, i) => {
+          const urgent = item.finalScore > 80 ? "⚠️" : "";
+          return `${i + 1}. ${urgent} ${item.content}`;
+        })
+        .join("\n");
+
+      return { message };
+    },
+
+    performAction: async (
+      _: any, 
+      { input }: any, 
+      ctx:any
+    ) => {
+      if (!ctx.user?.id) throw new Error("Unauthorized");
+
+      const authCtx = { id: "system", profile: "SUPER_ADMIN" };
+      const { messageId, action } = input;
+
+      if (action === "mark_read") {
+        await mercury.db.Message.update(
+          { _id: messageId},
+          { isRead: true },
+          authCtx
+        );
+      }
+
+      if (action === "archive") {
+        await mercury.db.Message.update(
+          { _id: messageId },
+          { isArchived: true },
+          authCtx
+        );
+      }
+      return { success: true };
+    },
+    searchSimilarMessages: async (
+      _: any, 
+      { input }: any,  
+      ctx:any
+    ) => {
+    if (!ctx.user?.id) throw new Error("Unauthorized");
+    const { query, limit = 5 } = input;
+    
+  
+    const client = new MongoClient(process.env.DB_URL);
+    await client.connect();
+
+    const db = client.db("test");
+    const collection = db.collection("senderstats");
+
+    // 1️⃣ Convert query → embedding
+    const queryEmbedding = await getEmbedding(query);
+
+    // 2️⃣ Vector search
+    const results = await collection.aggregate([
+      {
+      $vectorSearch: {
+        index: "vector_index",
+        queryVector: queryEmbedding,
+        path: "embedding",
+        numCandidates: 50,
+        limit
+      }
+      }
+      ]).toArray();
+
+      await client.close();
+
+      return results.map((doc: any) => ({
+        messageId: doc._id,
+        senderName: doc.senderName,
+        content: doc.lastSubject,
+        channel: "email"
+      }));
+},
 },
   Mutation: {
     signUp: async (
@@ -617,90 +766,188 @@ return topMessages.map(top => ({
 }));
 
     },
+    //   creatingEmailContact: async (
+    //     _: any,
+    //     { input }: { input: { senderEmail: string } },
+    //     ctx: any
+    //   ) => {
+    //     try {
+    //   const ownerUserId = new mongoose.Types.ObjectId(ctx.user.id);
+
+    //   // 1️⃣ Fetch sender stats
+    //   const senderStats = await mercury.db.SenderStats.mongoModel.findOne({
+    //     ownerUserId,
+    //     senderEmail: input.senderEmail,
+    //   });
+
+    //   if (!senderStats) {
+    //     return { message: false };
+    //   }
+
+    //   // 2️⃣ Already linked
+    //   if (senderStats.contactId) {
+    //     return { message: true };
+    //   }
+
+    //   // 3️⃣ Create contact
+    //   const contactId = await ensureContactForSender({
+    //     ownerUserId: senderStats.ownerUserId.toString(),
+    //     senderEmail: senderStats.senderEmail,
+    //     relationship: "STRANGER",
+    //   });
+
+    //   // 4️⃣ Link contact
+    //   await mercury.db.SenderStats.mongoModel.updateOne(
+    //     { _id: senderStats._id, contactId: null },
+    //     { $set: { contactId } }
+    //   );
+
+    //   return { message: true };
+
+    // } catch (error) {
+    //   console.error("creatingEmailContact error:", error);
+    //   return { message: false };
+    // }
+    //   },
+    //   updatingEmailContact: async (
+    //     _: any,  
+    //     { input:{senderEmail,relationship} }: { input: { senderEmail: string,relationship:string } }, 
+    //     ctx:any) => {
+    //     try {
+    //        const ownerUserId=ctx.user.id
+    //        const senderStats = await mercury.db.SenderStats.mongoModel.findOne({
+    //           ownerUserId,
+    //           senderEmail:senderEmail,
+    //         });
+    //         console.log(senderStats,"senderstats");
+    //         if (!senderStats.contactId) {
+    //           const contactId = await ensureContactForSender(
+    //             {
+    //               ownerUserId: senderStats.ownerUserId.toString(),
+    //               senderEmail: senderStats.senderEmail,
+    //               relationship:relationship
+    //             },
+    //           );
+    //           console.log(contactId,"contactId");
+    //         }
+    //         else{
+    //           const updated= await mercury.db.Contact.mongoModel.updateOne(
+    //             {
+    //                 primaryEmail:senderEmail,
+    //                 ownerUserId
+    //             },
+    //             {
+    //               $set: {
+    //                 relationship,
+    //                 updatedOn: new Date()
+    //                 }
+    //               }
+    //             );
+    //             console.log(updated,"updatedcontact");
+    //         }
+    //         return true
+    //     } catch (error) {
+    //       console.error("creatingEmailContact error:", error);
+    //       return false;
+    //     }
+    //   },
     creatingEmailContact: async (
-      _: any,
-      { input }: { input: { senderEmail: string } },
-      ctx: any
-    ) => {
-      try {
-    const ownerUserId = new mongoose.Types.ObjectId(ctx.user.id);
+          _: any,
+          { input }: { input: { senderEmail: string } },
+          ctx: any
+        ) => {
+          try {
+            const ownerUserId = ctx.user.id;
+            const email = input.senderEmail.trim().toLowerCase();
 
-    // 1️⃣ Fetch sender stats
-    const senderStats = await mercury.db.SenderStats.mongoModel.findOne({
-      ownerUserId,
-      senderEmail: input.senderEmail,
-    });
+            const senderStats = await mercury.db.SenderStats.mongoModel.findOne({
+              ownerUserId,
+              senderEmail: email,
+            });
 
-    if (!senderStats) {
-      return { message: false };
-    }
+            if (!senderStats) {
+              return { message: false };
+            }
 
-    // 2️⃣ Already linked
-    if (senderStats.contactId) {
-      return { message: true };
-    }
+            // Already linked
+            if (senderStats.contactId) {
+              return { message: true };
+            }
 
-    // 3️⃣ Create contact
-    const contactId = await ensureContactForSender({
-      ownerUserId: senderStats.ownerUserId.toString(),
-      senderEmail: senderStats.senderEmail,
-      relationship: "STRANGER",
-    });
+            // Create contact
+            const contactId = await ensureContactForSender({
+              ownerUserId,
+              senderEmail: email,
+              relationship: "STRANGER",
+            });
 
-    // 4️⃣ Link contact
-    await mercury.db.SenderStats.mongoModel.updateOne(
-      { _id: senderStats._id, contactId: null },
-      { $set: { contactId } }
-    );
+            // Link contact
+            await mercury.db.SenderStats.mongoModel.updateOne(
+              { _id: senderStats._id },
+              { $set: { contactId } }
+            );
 
-    return { message: true };
+            return { message: true };
 
-  } catch (error) {
-    console.error("creatingEmailContact error:", error);
-    return { message: false };
-  }
+          } catch (error) {
+            console.error("creatingEmailContact error:", error);
+            return { message: false };
+          }
     },
     updatingEmailContact: async (
-      _: any,  
-      { input:{senderEmail,relationship} }: { input: { senderEmail: string,relationship:string } }, 
-      ctx:any) => {
-      try {
-         const ownerUserId=ctx.user.id
-         const senderStats = await mercury.db.SenderStats.mongoModel.findOne({
+        _: any,
+        {
+          input: { senderEmail, relationship },
+        }: { input: { senderEmail: string; relationship: string } },
+        ctx: any
+      ) => {
+        try {
+          const ownerUserId = ctx.user.id;
+          const email = senderEmail.trim().toLowerCase();
+
+          const senderStats = await mercury.db.SenderStats.mongoModel.findOne({
             ownerUserId,
-            senderEmail:senderEmail,
+            senderEmail: email,
           });
-          console.log(senderStats,"senderstats");
-          if (!senderStats.contactId) {
-            const contactId = await ensureContactForSender(
-              {
-                ownerUserId: senderStats.ownerUserId.toString(),
-                senderEmail: senderStats.senderEmail,
-                relationship:relationship
-              },
+
+          if (!senderStats) return false;
+
+          let contactId = senderStats.contactId;
+
+          // If no contact → create
+          if (!contactId) {
+            contactId = await ensureContactForSender({
+              ownerUserId,
+              senderEmail: email,
+              relationship,
+            });
+
+            // 🔥 IMPORTANT: link it
+            await mercury.db.SenderStats.mongoModel.updateOne(
+              { _id: senderStats._id },
+              { $set: { contactId } }
             );
-            console.log(contactId,"contactId");
-          }
-          else{
-            const updated= await mercury.db.Contact.mongoModel.updateOne(
+          } else {
+            // Update existing contact
+            await mercury.db.Contact.mongoModel.updateOne(
               {
-                  primaryEmail:senderEmail,
-                  ownerUserId
+                _id: contactId,
               },
               {
                 $set: {
                   relationship,
-                  updatedOn: new Date()
-                  }
-                }
-              );
-              console.log(updated,"updatedcontact");
+                  updatedOn: new Date(),
+                },
+              }
+            );
           }
-          return true
-      } catch (error) {
-        console.error("creatingEmailContact error:", error);
-        return false;
-      }
-    },
-  }
+
+          return true;
+
+        } catch (error) {
+          console.error("updatingEmailContact error:", error);
+          return false;
+        }
+    }
+    }
 }

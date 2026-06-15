@@ -85,3 +85,30 @@ export const calculateFinalScore = async ({
 
   return Math.max(0, Math.round(finalScore));
 };
+
+export const calculateFinalEmailScore = async ({
+  basePriorityScore,
+  sentAt,
+  ownerUserId,
+  senderUserId,
+}: any): Promise<number> => {
+  const behaviorScore = await getBehaviorScore(
+    ownerUserId,
+    senderUserId
+  );
+
+  const recencyScore = getRecencyScore(sentAt);
+
+  const noisePenalty = await getNoisePenalty(
+    ownerUserId,
+    senderUserId
+  );
+
+  const finalScore =
+    basePriorityScore +
+    behaviorScore +
+    recencyScore -
+    noisePenalty;
+
+  return Math.max(0, Math.round(finalScore));
+};

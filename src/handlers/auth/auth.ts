@@ -22,11 +22,32 @@ export default class Auth {
       throw new Error(error.message);
     }
   }
-  getUserBySession(session: string): ctxUser {
-    try {
-      return jwt.verify(session, process.env.SECRET_TOKEN_KEY || "") as ctxUser;
-    } catch (error: any) {
-      throw new Error('Invalid Session!!');
+  // getUserBySession(session: string): ctxUser {
+  //   try {
+  //     return jwt.verify(session, process.env.SECRET_TOKEN_KEY || "") as ctxUser;
+  //   } catch (error: any) {
+  //     throw new Error('Invalid Session!!');
+  //   }
+  // }
+  getUserBySession(session?: string): ctxUser {
+  try {
+    if (!session) {
+      throw new Error("No session provided");
     }
+
+    return jwt.verify(
+      session,
+      process.env.SECRET_TOKEN_KEY || ""
+    ) as ctxUser;
+  } catch {
+    throw new Error("Invalid Session!!");
   }
 }
+}
+// const connect = new Connect(token);
+// connect.validateSession(token);
+
+// return {
+//   connect,
+//   user: connect.user
+// };
