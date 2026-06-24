@@ -1,5 +1,6 @@
 import OpenAI from 'openai';
 import dotenv from 'dotenv';
+import ollama from "ollama";
 dotenv.config();
 // Set up OpenAI configuration
 import { GoogleGenerativeAI } from "@google/generative-ai";
@@ -19,18 +20,29 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 
 
 
-export async function getEmbedding(text: string) {
-    console.log("hiii",text);
-  const genAI = new GoogleGenerativeAI(process.env.GEMINIAI_API_KEY!);
+// export async function getEmbedding(text: string) {
+//     console.log("hiii",text);
+//   const genAI = new GoogleGenerativeAI(process.env.GEMINIAI_API_KEY!);
 
-  const model = genAI.getGenerativeModel({
-    model: "text-embedding-004",
+//   const model = genAI.getGenerativeModel({
+//     model: "text-embedding-004",
+//   });
+
+//   const result = await model.embedContent(text);
+//   console.log(result,'result');
+//   console.log(result.embedding.values,'embedding values');
+
+//   return result.embedding.values;
+// }
+
+
+
+
+export async function getEmbedding(text: string) {
+  const response = await ollama.embeddings({
+    model: "nomic-embed-text",
+    prompt: text,
   });
 
-  const result = await model.embedContent(text);
-  console.log(result,'result');
-  console.log(result.embedding.values,'embedding values');
-
-  return result.embedding.values;
+  return response.embedding;
 }
-

@@ -7,7 +7,7 @@ async function run() {
 const client = new MongoClient(process.env.DB_URL);
   try {
     const database = client.db("test");
-    const collection = database.collection("senderstats");
+    const collection = database.collection("senderStats");
    
     // Define your MongoDB Vector Search index
     const index = {

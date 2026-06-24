@@ -1,8 +1,11 @@
 import mercury from "@mercury-js/core";
 import bcrypt from "bcryptjs";
+import ollama from "ollama";
+import { ObjectId } from "mongodb";
 import { redisConnection as redis} from "../utils/redis";
 import { sendOtpEmail } from "../utils/sendEmail";
 import { sendOtpSms,sentMessage } from "../utils/sendSms";
+import {searchSimilarMessagesInternal,askOllama}from "../utils/vector-query";
 import { emailQueue, messageWorker } from "./queue";
 import { ApolloCtx, ctxUser } from "../connect";
 import { setContext } from "../helpers/setContext.ts";
@@ -25,6 +28,7 @@ import {
 import { notifyUser } from "../socket";
 export const resolvers = {
   Query: {
+      
     hello: (_: any, { name }: { name: string }) =>
       `Hello ${name || "World"}`,
     getGmailConsentUrl: async (_: any,{ input }: { input: { token ?:string } }, ctx: any) => {
@@ -128,145 +132,274 @@ export const resolvers = {
       }
     },
     //apis to expose to the chatbot
-    getTopItems: async (
-      _: any, 
-      { limit = 5 }, 
+    // getTopItems: async (
+    //   _: any, 
+    //   { limit = 5 }, 
+    //   ctx: any
+    // ) => {
+    //   if (!ctx.user?.id) throw new Error("Unauthorized");
+
+    //   const authCtx = { id: "system", profile: "SUPER_ADMIN" };
+
+    //   const user = await mercury.db.User.get(
+    //     { _id: ctx.user.id }, 
+    //     authCtx
+    //   );
+
+    //   if (!user || !user.isMsgConsent) return [];
+
+    //   const messages = await mercury.db.Message.list(
+    //     {
+    //       ownerUserId: ctx.user.id,
+    //       isRead: false,
+    //       isDeleted: false,
+    //       isArchived: false,
+    //     },
+    //     authCtx,
+    //     { limit: 20 }
+    //   );
+
+    //   const scored = await Promise.all(
+    //     messages.map(async (m: any) => ({
+    //       message: m,
+    //       finalScore: await calculateFinalScore({
+    //         basePriorityScore: m.priorityScore,
+    //         ownerUserId: ctx.user.id,
+    //         senderUserId: m.senderUserId,
+    //         authCtx,
+    //       }),
+    //     }))
+    //   );
+
+    //   scored.sort((a, b) => b.finalScore - a.finalScore);
+
+    //   return scored.slice(0, limit).map(({ message, finalScore }) => ({
+    //     messageId: message.id,
+    //     senderName: message.senderName,
+    //     content: message.subject || message.content,
+    //     finalScore,
+    //     channel: message.channel,
+    //   }));
+    // },
+    askAssistant: async (
+      _: any,
+      { input }: { input: { question: string } },
       ctx: any
     ) => {
-      if (!ctx.user?.id) throw new Error("Unauthorized");
+        const ownerUserId = ctx.user.id;
+        const{question}=input
+        console.log(question,"question");
+        console.log(ownerUserId,"ownerUserId");
 
-      const authCtx = { id: "system", profile: "SUPER_ADMIN" };
+        const   senderStatsQuery =
+          await mercury.db.SenderStats.mongoModel
+            .find({ ownerUserId })
+            .sort({ emailCount: -1 })
+            .limit(20)
+            .lean();
+            const senderSummary = senderStatsQuery.map((s: any) => ({
+            senderEmail: s.senderEmail,
+            senderName: s.senderName,
+            emailCount: s.emailCount,
+            unreadCount: s.unreadCount,
+            lastSubject: s.lastSubject,
+          }));
 
-      const user = await mercury.db.User.get(
-        { _id: ctx.user.id }, 
-        authCtx
-      );
+         const unreadMessagesQuery =
+              await mercury.db.Message.mongoModel
+                .find({
+                  ownerUserId,
+                  isRead: false
+                })
+                .sort({
+                  priorityScore: -1
+                })
+                .limit(20)
+                .lean();
+                console.log(
+        JSON.stringify(unreadMessagesQuery).length,
+        "unread size"
+          );
+          const unreadSummary = unreadMessagesQuery.map((m) => ({
+            sender: m.senderName,
+            subject: m.subject,
+          }));
 
-      if (!user || !user.isMsgConsent) return [];
+      const [senderStats, unreadMessages] = await Promise.all([
+        senderStatsQuery,
+        unreadMessagesQuery,
+      ]);
+                                          
 
-      const messages = await mercury.db.Message.list(
-        {
-          ownerUserId: ctx.user.id,
-          isRead: false,
-          isDeleted: false,
-          isArchived: false,
-        },
-        authCtx,
-        { limit: 20 }
-      );
-
-      const scored = await Promise.all(
-        messages.map(async (m: any) => ({
-          message: m,
-          finalScore: await calculateFinalScore({
-            basePriorityScore: m.priorityScore,
-            ownerUserId: ctx.user.id,
-            senderUserId: m.senderUserId,
-            authCtx,
-          }),
-        }))
-      );
-
-      scored.sort((a, b) => b.finalScore - a.finalScore);
-
-      return scored.slice(0, limit).map(({ message, finalScore }) => ({
-        messageId: message.id,
-        senderName: message.senderName,
-        content: message.subject || message.content,
-        finalScore,
-        channel: message.channel,
+      const related =
+          await searchSimilarMessagesInternal(
+            question,
+            ownerUserId
+          );
+      const relatedSummary = related.map((r: any) => ({
+        senderEmail: r.senderEmail,
+        senderName: r.senderName,
+        lastSubject: r.lastSubject,
       }));
-    },
 
-    getAssistantSummary: async (
-      _: any, 
-      { limit = 3 }, 
-      ctx:any
-     ) => {
-      const items = await resolvers.Query.getTopItems(_, { limit }, ctx);
 
-      if (!items.length) {
-        return { message: "No important updates right now." };
-      }
+     const prompt = `
+          You are an email assistant.
 
-      const message = items
-        .map((item, i) => {
-          const urgent = item.finalScore > 80 ? "⚠️" : "";
-          return `${i + 1}. ${urgent} ${item.content}`;
-        })
-        .join("\n");
+          Question:
+          ${question}
 
-      return { message };
-    },
+          Unread Emails:
+          ${JSON.stringify(unreadSummary)}
 
-    performAction: async (
-      _: any, 
-      { input }: any, 
-      ctx:any
-    ) => {
-      if (!ctx.user?.id) throw new Error("Unauthorized");
+          When answering "What should I focus on today?", prioritize:
+          1. Account issues
+          2. Security alerts
+          3. Job opportunities
+          4. Delivery problems
+          5. Personal communications
 
-      const authCtx = { id: "system", profile: "SUPER_ADMIN" };
-      const { messageId, action } = input;
+          Ignore newsletters, promotions, marketing emails, recommendations, and general news unless specifically asked.
 
-      if (action === "mark_read") {
-        await mercury.db.Message.update(
-          { _id: messageId},
-          { isRead: true },
-          authCtx
-        );
-      }
+          Provide the top 3 items requiring attention and explain why.
+          Answer in 3 bullet points.
+          Maximum 60 words.
+          `;
+        console.log("prompt",prompt);
+        console.log("PROMPT LENGTH:", prompt.length);
+        console.log("BEFORE OLLAMA");
 
-      if (action === "archive") {
-        await mercury.db.Message.update(
-          { _id: messageId },
-          { isArchived: true },
-          authCtx
-        );
-      }
-      return { success: true };
-    },
-    searchSimilarMessages: async (
-      _: any, 
-      { input }: any,  
-      ctx:any
-    ) => {
-    if (!ctx.user?.id) throw new Error("Unauthorized");
-    const { query, limit = 5 } = input;
+      try {
+        console.timeEnd("senderStats");
+        console.timeEnd("unreadMessages");
+        console.timeEnd("embedding");
+        console.timeEnd("vectorSearch");
+        console.timeEnd("ollama");
+        console.timeEnd("total");
+        console.time("ollama");
+        const response = await ollama.chat({
+        model: "llama3.2:3b",
+        messages: [
+          {
+            role: "user",
+            content: prompt,
+          },
+        ],
+      });
+      console.timeEnd("ollama");
+      console.log("FINAL RETURN TYPE:", typeof response.message.content);
+    console.log("FINAL RETURN:", {
+      message: response.message.content,
+    });
+
+    console.log("OLLAMA RESPONSE:", JSON.stringify(response, null, 2));
+    console.log("CONTENT:", response?.message?.content);
+    console.log(
+      "RETURN VALUE:",
+      JSON.stringify(
+        {
+          message: response?.message?.content,
+        },
+        null,
+        2
+      )
+    );
+    return {message: response.message.content};
+    }catch(err){
+      console.log(err)
+      throw err
+    }
+  },
+},
+
+    // getAssistantSummary: async (
+    //   _: any, 
+    //   { limit = 3 }, 
+    //   ctx:any
+    //  ) => {
+    //   const items = await resolvers.Query.getTopItems(_, { limit }, ctx);
+
+    //   if (!items.length) {
+    //     return { message: "No important updates right now." };
+    //   }
+
+    //   const message = items
+    //     .map((item, i) => {
+    //       const urgent = item.finalScore > 80 ? "⚠️" : "";
+    //       return `${i + 1}. ${urgent} ${item.content}`;
+    //     })
+    //     .join("\n");
+
+    //   return { message };
+    // },
+
+    // performAction: async (
+    //   _: any, 
+    //   { input }: any, 
+    //   ctx:any
+    // ) => {
+    //   if (!ctx.user?.id) throw new Error("Unauthorized");
+
+    //   const authCtx = { id: "system", profile: "SUPER_ADMIN" };
+    //   const { messageId, action } = input;
+
+    //   if (action === "mark_read") {
+    //     await mercury.db.Message.update(
+    //       { _id: messageId},
+    //       { isRead: true },
+    //       authCtx
+    //     );
+    //   }
+
+    //   if (action === "archive") {
+    //     await mercury.db.Message.update(
+    //       { _id: messageId },
+    //       { isArchived: true },
+    //       authCtx
+    //     );
+    //   }
+    //   return { success: true };
+    // },
+    // searchSimilarMessages: async (
+    //   _: any, 
+    //   { input }: any,  
+    //   ctx:any
+    // ) => {
+    // if (!ctx.user?.id) throw new Error("Unauthorized");
+    // const { query, limit = 5 } = input;
     
   
-    const client = new MongoClient(process.env.DB_URL);
-    await client.connect();
+    // const client = new MongoClient(process.env.DB_URL);
+    // await client.connect();
 
-    const db = client.db("test");
-    const collection = db.collection("senderstats");
+    // const db = client.db("test");
+    // const collection = db.collection("senderstats");
 
-    // 1️⃣ Convert query → embedding
-    const queryEmbedding = await getEmbedding(query);
+    // // 1️⃣ Convert query → embedding
+    // const queryEmbedding = await getEmbedding(query);
 
-    // 2️⃣ Vector search
-    const results = await collection.aggregate([
-      {
-      $vectorSearch: {
-        index: "vector_index",
-        queryVector: queryEmbedding,
-        path: "embedding",
-        numCandidates: 50,
-        limit
-      }
-      }
-      ]).toArray();
+    // // 2️⃣ Vector search
+    // const results = await collection.aggregate([
+    //   {
+    //   $vectorSearch: {
+    //     index: "vector_index",
+    //     queryVector: queryEmbedding,
+    //     path: "embedding",
+    //     numCandidates: 50,
+    //     limit
+    //   }
+    //   }
+    //   ]).toArray();
 
-      await client.close();
+    //   await client.close();
 
-      return results.map((doc: any) => ({
-        messageId: doc._id,
-        senderName: doc.senderName,
-        content: doc.lastSubject,
-        channel: "email"
-      }));
-},
-},
+    //   return results.map((doc: any) => ({
+    //     messageId: doc._id,
+    //     senderName: doc.senderName,
+    //     content: doc.lastSubject,
+    //     channel: "email"
+    //   }));
+
   Mutation: {
     signUp: async (
       _: any,
@@ -948,6 +1081,6 @@ return topMessages.map(top => ({
           console.error("updatingEmailContact error:", error);
           return false;
         }
-    }
-    }
+    },
+}
 }

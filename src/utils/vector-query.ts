@@ -1,52 +1,74 @@
-import { MongoClient } from 'mongodb';
-import { getEmbedding } from "./embeddings";
-import dotenv from 'dotenv';
-dotenv.config();
-// MongoDB connection URI and options
-const client = new MongoClient(process.env.DB_URL);
-async function run() {
-    try {
-        // Connect to the MongoDB client
-        await client.connect();
+import { MongoClient ,ObjectId} from "mongodb";
+import { getEmbedding } from "../utils/embeddings";
+import ollama from "ollama";
 
-        // Specify the database and collection
-        const database = client.db("test"); 
-        const collection = database.collection("senderstats"); 
+export async function searchSimilarMessagesInternal(
+  query: string,
+  ownerUserId: string,
+  limit = 5
+) {
+  const client = new MongoClient(process.env.DB_URL!);
 
-        // Generate embedding for the search query
-        const queryEmbedding = await getEmbedding("Personal loan up to 10 lakhs on Tata Neu, 100 percent digital and zero hassle");
+  try {
+    await client.connect();
 
-        // Define the sample vector search pipeline
-        const pipeline = [
-            {
-                $vectorSearch: {
-                    index: "vector_index",
-                    queryVector: queryEmbedding,
-                    path: "embedding",
-                    exact: true,
-                    limit: 5
-                }
+    const db = client.db("statAlert");
+    const collection = db.collection("senderstats");
+
+    // Generate embedding for user query
+    const queryEmbedding = await getEmbedding(query);
+    console.log(queryEmbedding,"queryEmbedding");
+
+    const results = await collection
+      .aggregate([
+        {
+          $vectorSearch: {
+            index: "vector_index",
+            path: "embedding",
+            queryVector: queryEmbedding,
+            numCandidates: 100,
+            limit,
+          },
+        },
+        {
+          $match: {
+            ownerUserId: new ObjectId(ownerUserId),
+          },
+        },
+        {
+          $project: {
+            senderName: 1,
+            senderEmail: 1,
+            senderCategory: 1,
+            lastSubject: 1,
+            emailCount: 1,
+            unreadCount: 1,
+            score: {
+              $meta: "vectorSearchScore",
             },
-            {
-                $project: {
-                    _id: 0,
-                    lastSubject:1,
-                    score: {
-                        $meta: "vectorSearchScore"
-                    }
-                }
-            }
-        ];
+          },
+        },
+      ])
+      .toArray();
+      console.log(results,"results");
 
-        // run pipeline
-        const result = collection.aggregate(pipeline);
-
-        // print results
-        for await (const doc of result) {
-            console.dir(JSON.stringify(doc));
-        }
-        } finally {
-        await client.close();
-    }
+    return results;
+  } finally {
+    await client.close();
+  }
 }
-run().catch(console.dir);
+
+
+export async function askOllama(prompt: string) {
+  const response = await ollama.chat({
+    model: "llama3.1:8b",
+    messages: [
+      {
+        role: "user",
+        content: prompt,
+      },
+    ],
+  });
+
+  return response.message.content;
+}

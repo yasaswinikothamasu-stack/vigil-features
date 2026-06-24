@@ -7,3 +7,4 @@ export {calculateFinalScore} from "../functions/finalScore";
 export {runTopPriorityNotification} from "./topPriorityNotification";
 export {getEmbedding} from "./embeddings";
 export  {run} from "./create-embeddings";
+export {searchSimilarMessagesInternal,askOllama}from "./vector-query";

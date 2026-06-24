@@ -69,6 +69,13 @@ export const SenderStats = mercury.createModel(
     lastReceivedAt: {
       type: "date",
     },
+    senderCategory: {
+      type: "string"
+    },
+    priorityScore: {
+      type: "number",
+      default: 0
+    },
     unreadCount: {
       type: "number",
       default: 0,

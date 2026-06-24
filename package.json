@@ -10,7 +10,8 @@
     "dev": "nodemon --ext ts --watch src --exec \"npm run build-dev\"",
     "start": "npm run build && cross-env NODE_ENV=production node dist/src/index.js",
     "worker:email": "nodemon src/utils/queue.ts",
-    "run-embed": "ts-node src/utils/create-embeddings.ts",
+    "create-index": "node dist/src/utils/create-index.js",
+    "create-embeddings": "ts-node src/utils/create-embeddings.ts",
     "test": "majestic"
   },
   "author": "yasaswini-tech01 <Yasaswini.Kothamasu@vithiit.com>",
@@ -49,6 +50,7 @@
     "node-cron": "^3.0.3",
     "nodemailer": "^6.10.0",
     "nodemon": "^2.0.15",
+    "ollama": "^0.6.3",
     "open": "^10.2.0",
     "openai": "^6.17.0",
     "pdf-parse": "^2.2.16",

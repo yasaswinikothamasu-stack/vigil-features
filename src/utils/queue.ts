@@ -2,7 +2,8 @@ import { Worker, Queue } from "bullmq";
 import mercury from "@mercury-js/core";
 import { google } from "googleapis";
 import { redisConnection } from "../utils/redis";
-import {calculatePriorityScore} from "../functions/calcPriorityScore"
+import {calculatePriorityScore,detectCategory,emailcalculatePriorityScore} from "../functions/calcPriorityScore"
+import { Body } from "twilio/lib/twiml/MessagingResponse";
 /* ─────────────────────────────────────
    Helper: parse "Name <email@x.com>"
 ───────────────────────────────────── */
@@ -24,6 +25,31 @@ function parseFrom(fromHeader: string): {
     : "";
 
   return { senderEmail, senderName };
+}
+function getEmailBody(payload: any): string {
+  let body = "";
+
+  if (payload.parts) {
+    for (const part of payload.parts) {
+      if (part.mimeType === "text/plain" && part.body?.data) {
+        body += Buffer.from(
+          part.body.data,
+          "base64"
+        ).toString("utf-8");
+      }
+
+      if (part.parts) {
+        body += getEmailBody(part);
+      }
+    }
+  } else if (payload.body?.data) {
+    body += Buffer.from(
+      payload.body.data,
+      "base64"
+    ).toString("utf-8");
+  }
+
+  return body;
 }
 
 /* ─────────────────────────────────────
@@ -234,7 +260,21 @@ async function fullBackfill({
       const sentAt = new Date(Number(msgRes.data.internalDate));
       const isRead = !msgRes.data.labelIds?.includes("UNREAD");
 
+      const body = getEmailBody(
+        msgRes.data.payload
+      );
+
+      const snippet = msgRes.data.snippet || "";
+      console.log(body,"body");
+
+
       const { senderEmail, senderName } = parseFrom(fromHeader);
+      const category = detectCategory(
+          senderEmail,
+          subject,
+          `${snippet} ${body}`
+      );
+      console.log(category,"category");
 
       // 2️⃣ UPSERT message (insert happens here)
       const existingMessage =
@@ -267,6 +307,7 @@ async function fullBackfill({
           {
             $set: {
               senderName,
+              senderCategory:category,
               lastReceivedAt: sentAt,
               lastSubject: subject,
             },
@@ -423,6 +464,13 @@ export const messageWorker = new Worker(
       const sentAt = new Date(Number(msgRes.data.internalDate));
       const isRead = !msgRes.data.labelIds?.includes("UNREAD");
 
+      const body = getEmailBody(
+        msgRes.data.payload
+      );
+      
+      const snippet = msgRes.data.snippet || "";
+      console.log(body,"body");
+      console.log(snippet,"snippet");
       const { senderEmail, senderName } = parseFrom(fromHeader);
 
       // 2️⃣ UPSERT message (CREATE happens HERE if missing)
@@ -461,9 +509,11 @@ export const messageWorker = new Worker(
         const relationship = contact?.relationship ?? "STRANGER";
         console.log(relationship,"relationship");
         // 🔹 Calculate priority
-        const priorityScore = calculatePriorityScore(
+        const priorityScore = emailcalculatePriorityScore(
           relationship,
-          subject
+          subject,
+          body,
+          senderEmail
         );
         console.log(priorityScore,"priorityscore")
 
@@ -481,6 +531,13 @@ export const messageWorker = new Worker(
             },
           }
         );
+        const category = detectCategory(
+          senderEmail,
+          subject,
+          `${snippet} ${body}`
+        );
+        console.log(category,"category");
+        
         // 🔹 Update SenderStats (aggregate, once per message)
         await mercury.db.SenderStats.mongoModel.findOneAndUpdate(
           { ownerUserId, senderEmail },
@@ -488,6 +545,7 @@ export const messageWorker = new Worker(
             $set: {
               senderName,
               lastReceivedAt: sentAt,
+              senderCategory: category,
               lastSubject: subject,
               contactId: contact?._id,
             },

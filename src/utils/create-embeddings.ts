@@ -1,11 +1,11 @@
-import { MongoClient } from 'mongodb';
-import { getEmbedding } from './embeddings';
-// import { convertEmbeddingsToBSON } from './convert-embeddings.js';
-import dotenv from 'dotenv';
-dotenv.config();
+// import { MongoClient } from 'mongodb';
+// import { getEmbedding } from './embeddings';
+// // import { convertEmbeddingsToBSON } from './convert-embeddings.js';
+// import dotenv from 'dotenv';
+// dotenv.config();
 export const run = async function run() {
 
-    // Connect to your MongoDB deployment
+//     // Connect to your MongoDB deployment
     let client;
     try {
          console.log(process.env.DB_URL,"aaaa");
@@ -13,45 +13,49 @@ export const run = async function run() {
         // console.log(client,'client');
         await client.connect();
         const db = client.db("test");
-        const collection = db.collection("senderstats");
+        const collection = db.collection("senderStats");
         // console.log(collection,'collection');
 
-        // Filter to exclude null or empty summary fields
-        // const filter = { "summary": { "$nin": [ null, "" ] } };
+//         // Filter to exclude null or empty summary fields
+//         const filter = { "summary": { "$nin": [ null, "" ] } };
 
-        // Get a subset of documents from the collection
-        const documents = await collection.find().limit(50).toArray();
-        console.log(`Fetched ${documents.length} documents for embedding generation.`);
-        console.log(documents,'documents');
+//         // Get a subset of documents from the collection
+//         const documents = await collection.find().limit(50).toArray();
+//         console.log(`Fetched ${documents.length} documents for embedding generation.`);
+//         // console.log(documents,'documents');
 
-        console.log("Generating embeddings and updating documents...");
-        const updateDocuments = [];
-        await Promise.all(documents.map(async doc => {
-
-            // Generate an embedding using the function that you defined
-            var embedding = await getEmbedding(doc.lastSubject);
-
-            // Uncomment the following lines to convert the generated embedding into BSON format
-            // const bsonEmbedding = await convertEmbeddingsToBSON([embedding]); // Since convertEmbeddingsToBSON is designed to handle arrays
-            // embedding = bsonEmbedding; // Use BSON embedding instead of the original float32 embedding
+//         console.log("Generating embeddings and updating documents...");
+//         const updateDocuments = [];
+//         console.log("Testing embedding...");
+//         await Promise.all(documents.map(async doc => {
+//             const textForEmbedding = `
+//             Sender: ${senderName}
+//             Email: ${senderEmail}
+//             Subject: ${subject}
+//             Message: ${snippet}
+//             `;
+//             var embedding = await getEmbedding(textForEmbedding);
+//             // Uncomment the following lines to convert the generated embedding into BSON format
+//             // const bsonEmbedding = await convertEmbeddingsToBSON([embedding]); // Since convertEmbeddingsToBSON is designed to handle arrays
+//             // embedding = bsonEmbedding; // Use BSON embedding instead of the original float32 embedding
              
-            // Add the embedding to an array of update operations
-            updateDocuments.push(
-                {
-                    updateOne: { 
-                        filter: { "_id": doc._id },
-                        update: { $set: { "embedding": embedding } }
-                    }
-                }
-           )
-       }));
+//             // Add the embedding to an array of update operations
+//             updateDocuments.push(
+//                 {
+//                     updateOne: { 
+//                         filter: { "_id": doc._id },
+//                         update: { $set: { "embedding": embedding } }
+//                     }
+//                 }
+//            )
+//        }));
 
-       // Continue processing documents if an error occurs during an operation
-       const options = { ordered: false };
+//        // Continue processing documents if an error occurs during an operation
+//        const options = { ordered: false };
 
-       // Update documents with the new embedding field
-    //    const result = await collection.bulkWrite(updateDocuments, options); 
-    //    console.log("Count of documents updated: " + result.modifiedCount); 
+//        // Update documents with the new embedding field
+//        const result = await collection.bulkWrite(updateDocuments, options); 
+//        console.log("Count of documents updated: " + result.modifiedCount); 
             
     } catch (err) {
         console.log(err.stack);

@@ -5,41 +5,21 @@ export const typeDefs = `
     getGmailConsentUrl(input:token!):url
     getImportantNotifications(input:notificationInput):ImportantNotificationsResponse
     getUniquegmails(input:UniqueGmailInput!):[SenderStats]
-    getTopItems(limit: Int = 5): [NotificationItem]
-    getAssistantSummary(limit: Int = 3): AssistantResponse
-    performAction(input: ActionInput!): ActionResponse
-    searchSimilarMessages(input: SearchInput!): [NotificationItem]
-  }
+    askAssistant(input:AssistantInput!):AssistantResponse
+      }
     
   input SearchInput {
     query: String!, 
     limit: Int = 5
     }
 
-  type NotificationItem {
-  messageId: ID!
-  senderName: String
-  content: String
-  finalScore: Float
-  channel: String
+ 
+  input AssistantInput{
+   question:String!
   }
 
   type AssistantResponse {
   message: String!
-  }
-
-  type ActionResponse {
-  success: Boolean!
-  }
-
-  input ActionInput {
-  messageId: ID!
-  action: ActionType!
-  }
-    
-  enum ActionType {
-    MARK_READ
-    ARCHIVE
   }
 
   input EmailAndContactInput {

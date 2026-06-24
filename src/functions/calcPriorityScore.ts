@@ -36,28 +36,49 @@ export const getContentUrgencyScore = (content: string): number => {
 };
 
 export const detectCategory = (
-    senderEmail: string,
-    subject: string,
-    body: string
-  ): string => {
-  const text = `${senderEmail} ${subject} ${body}`.toLowerCase();
+  senderEmail: string,
+  subject: string,
+  body: string
+): string => {
+  const text =
+    `${senderEmail} ${subject} ${body}`.toLowerCase();
 
-  if (text.includes("bank") || text.includes("otp") || text.includes("transaction")) {
-    return "BANK";
+  // Finance
+  if (
+    /bank|hdfc|icici|sbi|axis|razorpay|upi|payment|refund|invoice|statement|credit card|debit card|transaction|otp/.test(text)
+  ) {
+    return "FINANCE";
   }
 
-  if (text.includes("exam") || text.includes("result") || text.includes("hall ticket")) {
-    return "EXAMS";
+  // Work
+  if (
+    /github|gitlab|jira|atlassian|slack|teams|meeting|deployment|review|task|sprint/.test(text)
+  ) {
+    return "WORK";
   }
 
-  if (text.includes("unsubscribe") || text.includes("offer") || text.includes("sale")) {
+  // Education
+  if (
+    /exam|result|hall ticket|admit card|course|assignment|college|university/.test(text)
+  ) {
+    return "EDUCATION";
+  }
+
+  // Marketing
+  if (
+    /unsubscribe|offer|sale|discount|promo|newsletter|deal|coupon/.test(text)
+  ) {
     return "MARKETING";
   }
 
-  if (text.includes("company") || text.includes("hr") || text.includes("job")) {
-    return "COMPANY";
+  // Social
+  if (
+    /linkedin|facebook|instagram|twitter|x.com|follow|connection request/.test(text)
+  ) {
+    return "SOCIAL";
   }
-  return "UNKNOWN";
+
+  return "OTHER";
 };
 
 export const getCategoryScore = (category: string): number => {
